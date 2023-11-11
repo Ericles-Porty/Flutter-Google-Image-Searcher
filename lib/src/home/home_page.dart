@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:googleapis/customsearch/v1.dart';
 import 'package:dio/dio.dart';
+import 'package:pretty_dio_logger/pretty_dio_logger.dart';
 
 class HomePage extends StatefulWidget {
   final String title;
@@ -16,7 +16,7 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   List<String> _images = <String>[];
-  late bool _canRequest;
+
   final _textController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
 
@@ -29,29 +29,23 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
-    _canRequest = false;
-  }
-
-  Future<void> _fetchImagesButton() async {
-    _canRequest = true;
-    await _fetchImages();
   }
 
   Future _fetchImages() async {
-    debugPrint('Called _fetchImages');
-    if (_textController.text.isEmpty) return;
-    debugPrint('Passed _textController.text.isEmpty');
     if (!_formKey.currentState!.validate()) return;
-    debugPrint('Passed _formKey.currentState!.validate()');
 
     final dio = Dio();
+    dio.interceptors.add(PrettyDioLogger(
+        requestHeader: true,
+        requestBody: true,
+        responseBody: true,
+        responseHeader: false,
+        error: true,
+        compact: true,
+        maxWidth: 90));
 
     try {
-      if (!_canRequest) {
-        debugPrint('Can\'t request');
-        return;
-      }
-
+      debugPrint('Requesting... ${_textController.text}');
       final response = await dio.get(
         'https://www.googleapis.com/customsearch/v1',
         queryParameters: <String, dynamic>{
@@ -62,16 +56,15 @@ class _HomePageState extends State<HomePage> {
           'safe': 'active',
           'hl': 'pt-BR',
           'gl': 'br',
-          'num': 2,
+          'num': 10,
           // 'imgType': 'STOCK',
           // 'imgType': 'LINEART',
         },
       );
 
-      _images = response.data['items'].map<String>((dynamic item) {
-        return item['link'] as String;
+      setState(() {
+        _images = response.data['items'].map<String>((dynamic item) => item['link'] as String).toList();
       });
-      _canRequest = false;
 
       debugPrint(_images.toString());
     } on DioException catch (e) {
@@ -79,85 +72,52 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  Widget _mapStateToWidget(BuildContext context, AsyncSnapshot<dynamic> snapshot) {
-    final ConnectionState state = snapshot.connectionState;
-    if (state == ConnectionState.none) {
-      debugPrint('No connection');
-      return const Center(child: Text('No connection'));
-    }
-
-    if (state == ConnectionState.waiting) {
-      debugPrint('Awaiting result...');
-      return const Center(child: Text('Awaiting result...'));
-    }
-
-    if (state == ConnectionState.active) {
-      debugPrint('Connection active');
-      return const Text('Awaiting result...');
-    }
-
-    if (snapshot.hasError) {
-      debugPrint('Error: ${snapshot.error}');
-      return Text('Error: ${snapshot.error}');
-    }
-
-    if (state == ConnectionState.done && snapshot.hasData) {
-      debugPrint('Done!');
-      return ListView.builder(itemBuilder: (BuildContext context, int index) {
-        return Image.network(
-          _images[index],
-          fit: BoxFit.cover,
-          height: 200,
-          width: 200,
-        );
-      });
-    }
-
-    if (state == ConnectionState.done && !snapshot.hasData) {
-      debugPrint('No results found');
-      return const Text('No results found');
-    }
-
-    debugPrint('Loading...');
-    return const CircularProgressIndicator();
-  }
-
   @override
   Widget build(BuildContext context) {
+    debugPrint('Builded Images URL: $_images');
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         title: Text(widget.title),
       ),
-      body: Center(
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
+          children: [
             Form(
               key: _formKey,
               child: TextFormField(
                 controller: _textController,
-                decoration: const InputDecoration(
-                  hintText: 'Digite o que deseja buscar',
-                ),
+                decoration: const InputDecoration(hintText: 'Digite o que deseja buscar'),
                 validator: (String? value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Por favor, digite algo';
-                  }
+                  if (value == null || value.isEmpty) return 'Por favor, digite algo';
                   return null;
                 },
               ),
             ),
-            FutureBuilder(
-              future: _fetchImages(),
-              builder: _mapStateToWidget,
+            GridView.builder(
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                crossAxisSpacing: 8,
+                mainAxisSpacing: 8,
+              ),
+              shrinkWrap: true,
+              itemCount: _images.length,
+              itemBuilder: (context, index) {
+                return Image.network(
+                  _images[index],
+                  fit: BoxFit.cover,
+                );
+              },
             ),
           ],
         ),
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: () {
-          _fetchImagesButton();
+          _fetchImages();
         },
         tooltip: 'Buscar',
         child: const Icon(Icons.search),
